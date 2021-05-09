@@ -3,6 +3,7 @@ const Crawler = require("crawler");
 const cheerioTableparser = require('cheerio-tableparser');
 const cloudscraper = require('cloudscraper');
 const decodeURL = require('urldecode');
+const axios = require('axios');
 const {MergeRecursive , urlify , decodeZippyURL , imageUrlToBase64} = require('../utils/index');
 const {
   BASE_URL         , SEARCH_URL             , BROWSE_URL , 
@@ -11,74 +12,277 @@ const {
 } = require('./urls');
 
 const malScraper = require('mal-scraper');
+const tioanime = require('tioanime');
 
-//RUTAS MANGA
-const getManga = async(query) =>{
-  const res = await cloudscraper(`${TMO__URL}${query}` , {method: 'GET'});
+
+const Test = async() => {
+  promises = [];
+  await tioanime.latestEpisodesAdded().then((res) => promises.push(res))
+
+  return Promise.all(promises);
+}
+
+
+//FIXED
+
+const latestAnimeAdded = async() =>{
+  const res = await cloudscraper(`https://tioanime.com/` , {method: 'GET'});
+  const body = await res;
+  const $ = cheerio.load(body);
+  const promises = [];
+  $('#tioanime > div > section:nth-child(3) > ul > li').each((index , element) =>{
+    const $element = $(element);
+    const id = $element.find('article a').attr('href').replace('/anime','anime');
+    const title = $element.find('article a h3.title').text();
+    const poster = 'https://tioanime.com'+$element.find('article a div.thumb figure img').attr('src');
+    const type = $element.find('div.anime__item__text ul li.anime').text().replace('\n','');
+    promises.push({
+      id: id || null,
+      title: title || null,
+      poster: poster || null,
+      type: type || null,
+    })
+  })
+  return Promise.all(promises);
+};
+
+const latestEpisodesAdded = async() =>{
+  const res = await cloudscraper(`https://tioanime.com/` , {method: 'GET'});
+  const body = await res;
+  const $ = cheerio.load(body);
+  const promises = [];
+  $('#tioanime > div > section:nth-child(1) > ul > li').each((index , element) =>{
+    const $element = $(element);
+
+    const master = $element.find('article a').attr('href').split('/')[2].split('-');
+    const masterT = $element.find('article a h3.title').text().split(' ');
+    masterT.pop();
+    const episode = master.pop();
+    const id = master.join('-');
+    const title = masterT.join(' ');
+    const poster = 'https://tioanime.com'+$element.find('article a div.thumb figure img').attr('src');
+    
+    promises.push({
+      id: id || null,
+      title: title || null,
+      poster: poster || null,
+      episode: episode || null,
+    })
+  })
+  return await Promise.all(promises);
+};
+
+const getAnimeServers = async(id, episode) =>{
+  const res = await cloudscraper(`https://tioanime.com/ver/${id}-${episode}` , {method: 'GET'});
+  const body = await res;
+  const $ = cheerio.load(body , {xmlMode: false});
+  const promises = [];
+  var textNode = $('body > script')
+    .map((i, x) => x.children[0])                              
+    .filter((i, x) => x && x.data.match(/var videos = /)).get(0);
+  const aux =  JSON.parse(textNode.data.match(/var videos = (\[.*?\;)/)[1].replace(';',''));
+  promises.push(aux);
+  return await Promise.all(promises.flat(1));
+};
+
+const downloadEpisode = async(id, episode) =>{
+  const res = await cloudscraper(`https://tioanime.com/ver/${id}-${episode}` , {method: 'GET'});
+  const body = await res;
+  const $ = cheerio.load(body);
+  const promises = [];
+  $('#downloads > div > div > div.modal-body > div > table > tbody > tr').each((index , element) =>{
+    const $element = $(element);
+    const server = $element.find('td:nth-child(2)').text();
+    const url = $element.find('td.text-center > a').attr('href');
+
+    promises.push({
+      server: server || null,
+      url: url || null,
+    })
+  })
+  return await Promise.all(promises.flat(1));
+};
+
+const getByRelease = async() =>{
+  let i=1;
+  const promises = [];
+  for(i=1; i<5; i++){
+    const res = await cloudscraper(`https://tioanime.com/directorio?year=1950%2C2021&status=1&sort=recent&p=${i}` , {method: 'GET'});
+    const body = await res;
+    const $ = cheerio.load(body);
+    $('#tioanime > div > div.row.justify-content-between.filters-cont > main > ul > li').each((index , element) =>{
+      const $element = $(element);
+      const id = $element.find('article a').attr('href').replace('/anime', 'anime');
+      const title = $element.find('article a h3.title').text();
+      const poster = 'https://tioanime.com'+$element.find('article a div.thumb figure img').attr('src');
+      const rating = $element.find('div.Description p span.Vts').text();
+
+      promises.push({
+        id: id || null,
+        title: title || null,
+        poster: poster || null,
+        rating: rating || null,
+      })
+    })
+  }
+  return Promise.all(promises);
+};
+
+const getAnimeInfo = async(id) =>{
+  const res = await cloudscraper(`https://tioanime.com/anime/${id}` , {method: 'GET'});
   const body = await res;
   const $ = cheerio.load(body);
   const promises = [];
 
-  $('div.col-12 div.element').each((index , element) =>{
+  const title = $('#tioanime > article > div > div > aside.col.col-sm-8.col-lg-9.col-xl-10 > h1.title').text();
+  const poster = 'https://tioanime.com'+$('#tioanime > article > div > div > aside.col.col-sm-4.col-lg-3.col-xl-2 > div > figure > img').attr('src');
+  const banner = 'https://tioanime.com'+$('#tioanime > article > figure > img').attr('src');
+  const synopsis = $('#tioanime > article > div > div > aside.col.col-sm-8.col-lg-9.col-xl-10 > p.sinopsis').text().replace(/\n/g,'');
+  const debut = $('#tioanime > article > div > div > aside.col.col-sm-4.col-lg-3.col-xl-2 > div > a').text();
+  const type = $('#tioanime > article > div > div > aside.col.col-sm-8.col-lg-9.col-xl-10 > div.meta > span.anime-type-peli').text();
+  const genres = [];
+
+  $('#tioanime > article > div > div > aside.col.col-sm-8.col-lg-9.col-xl-10 > p.genres > span').each((index, element) => {
     const $element = $(element);
-    const id = $element.find('a').attr('href').split('/')[5];
-    const url = $element.find('a').attr('href');
-    const title = $element.find('a div.thumbnail-title h4').text();
-    const score = $element.find('a span.score').text();
-    const image = $element.find('a ').css('background-image');
+    const genre = $element.find('a').text()
+    genres.push(genre);
+  });
+
+  let nextEpisode;
+  $('body > script:nth-child(21)').map((i, x) => x.children[0])
+    .filter((i, x) => {
+      const info =  x && JSON.parse(x.data.match(/var anime_info = (\[.*?\])/)[1]);
+      nextEpisode = info[3];
+  });
+
+  let malId;
+  $('body > script:nth-child(20)').map((i, x) => x.children[0])
+    .filter((i, x) => {
+      const info =  x && x.data.match(/axios.get(\(.*?\))/)[1];
+      malId = info.split('/')[5].replace("')",'');
+  });
+
+  promises.push(getEpisodes(id).then(episodes => ({
+    id: id,
+    malId: malId || null,
+    title: title || null,
+    poster: poster || null,
+    banner: banner || null,
+    synopsis: synopsis || null,
+    debut: debut || null,
+    type: type === 'TV' ? 'Anime' : type || null,
+    genres: genres || null,
+    nextEpisode: nextEpisode || null,
+    episodes: episodes,
+  })));
+
+  return Promise.all(promises);
+};
+
+
+const getEpisodes = async(id) =>{
+  const res = await cloudscraper(`https://tioanime.com/anime/${id}` , {method: 'GET'});
+  const body = await res;
+  const promises = [];
+  const $ = cheerio.load(body , {xmlMode: false});
+  $('body > script:nth-child(21)').map((i, x) => x.children[0])
+    .filter((i, x) => {
+      const info =  x && JSON.parse(x.data.match(/var anime_info = (\[.*?\])/)[1]);
+      const episodes =  x && JSON.parse(x.data.match(/var episodes = (\[.*?\])/)[1]);
+      const episodes_detail =  x && JSON.parse(x.data.match(/var episodes_details = (\[.*?\])/)[1]);
+      const id = info[1];
+      const poster = 'https://tioanime.com/uploads/thumbs/'+info[0]+'.jpg';
+
+      episodes.map((index, i) => {
+        promises.push({
+          id: id || null,
+          poster: poster || null,
+          episode: index || null,
+          date: episodes_detail[i] || null,
+      })
+    })
+  });
+  return await Promise.all(promises);
+  
+};
+
+const search = async(query) =>{
+  const res = await cloudscraper(`https://tioanime.com/directorio?q=${query}` , {method: 'GET'});
+  const body = await res;
+  const $ = cheerio.load(body);
+  const promises = [];
+
+  $('#tioanime > div > div.row.justify-content-between.filters-cont > main > ul > li').each((index , element) =>{
+    const $element = $(element);
+    const id = $element.find('article a').attr('href').replace('/anime','anime');
+    const title = $element.find('article a h3.title').text();
+    const poster = 'https://tioanime.com'+$element.find('article a div.thumb figure img').attr('src');
+   
+    promises.push({
+      id: id || null,
+      title: title || null,
+      malid: id || null,
+      poster: poster || null,
+      banner: null,
+      synopsis: null,
+      type: null,
+      rating: null,
+    })
+  })
+  return Promise.all(promises);
+};
+
+const getByCategorie = async(genre, page) =>{
+  const promises = [];
+  console.log(genre)
+  const res = await cloudscraper(`https://tioanime.com/directorio?genero%5B%5D=${genre}&year=1950%2C2021&status=2&sort=recent&p=${page}` , {method: 'GET'});
+  const body = await res;
+  const $ = cheerio.load(body);
+  $('#tioanime > div > div.row.justify-content-between.filters-cont > main > ul > li').each((index , element) =>{
+    const $element = $(element);
+    const id = $element.find('article a').attr('href').replace('/anime','anime');
+    const title = $element.find('article a h3.title').text();
+    const poster = 'https://tioanime.com'+$element.find('article a div.thumb figure img').attr('src');
+   
+    promises.push({
+      id: id || null,
+      title: title || null,
+      malid: id || null,
+      poster: poster || null,
+      banner: null,
+      synopsis: null,
+      type: null,
+      rating: null,
+    })
+  })
+  
+  return Promise.all(promises);
+};
+
+const searchRelated = async(query) =>{
+  const res = await cloudscraper(`https://tioanime.com/anime/${query}` , {method: 'GET'});
+  const body = await res;
+  const $ = cheerio.load(body);
+  const promises = [];
+  
+  $('#tioanime > div > div > aside.sidebar.col-12 > div > section > ul > li').each((index , element) =>{
+    const $element = $(element);
+    const id = $element.find('article div.thumb a').attr('href').replace('/anime','anime');
+    const title = $element.find('article div.media-body a h3.title').text();
+    let poster = 'https://tioanime.com'+$element.find('article div.thumb a figure img').attr('src');
 
     promises.push({
       id: id || null,
-      url: url || null,
       title: title || null,
-      score: score || null,
-      image: image || null,
-
+      poster: poster || null,
     })
   })
   return Promise.all(promises);
 };
 
 
-//borrar
-
-const divJavier = async() =>{
-  const promises = [];
-
-  promises.push({
-    azul: 'azul',
-    rojo: 'rojo'
-  })
-  
-  return Promise.all(promises);
-
-};
-
-
-
 //RUTAS ANIME
-const getByCategorie = async(genre, page) =>{
-  const promises = [];
-  const res = await cloudscraper(`${BROWSE_URL}genre%5B%5D=${genre}&order=title&page=${page}` , {method: 'GET'});
-  const body = await res;
-  const $ = cheerio.load(body);
-  $('div.Container ul li article').each((index , element) =>{
-  const $element = $(element);
-  const id = $element.find('a').attr('href').replace('/anime', 'anime');
-  const title = $element.find('a h3.Title').text();
-  const poster = $element.find('a div.Image img').attr('src');
-  const rating = $element.find('div.Description p span.Vts').text();
 
-  promises.push({
-    id: id || null,
-    title: title || null,
-    poster: poster || null,
-    rating: rating || null,
-  })
-  })
-  
-  return Promise.all(promises);
-};
 
 
 const TopAiring = async() =>{
@@ -170,30 +374,6 @@ const TopAllTime = async() =>{
 
 
 
-const getByRelease = async() =>{
-  let i=1;
-  const promises = [];
-  for(i=1; i<5; i++){
-    const res = await cloudscraper(`${BROWSE_URL}type%5B%5D=tv&status%5B%5D=1&order=title&page=${i}` , {method: 'GET'});
-    const body = await res;
-    const $ = cheerio.load(body);
-  $('div.Container ul li article').each((index , element) =>{
-    const $element = $(element);
-    const id = $element.find('a').attr('href').replace('/anime', 'anime');
-    const title = $element.find('a h3.Title').text();
-    const poster = $element.find('a div.Image img').attr('src');
-    const rating = $element.find('div.Description p span.Vts').text();
-
-    promises.push({
-      id: id || null,
-      title: title || null,
-      poster: poster || null,
-      rating: rating || null,
-    })
-  })
-  }
-  return Promise.all(promises);
-};
 
 
 
@@ -400,32 +580,6 @@ const getAnimeChapterTitlesHelper = async(title) =>{
   return Promise.all(promises);
 };
 
-
-const getAnimeInfo = async(id) =>{
-  let promises = [];
-  try{
-    promises.push(await animeEpisodesHandler(id).then(async extra => ({
-      id: id || null,
-      title: extra.animeExtraInfo[0].title || null,
-      poster: extra.animeExtraInfo[0].poster || null,
-      banner: extra.animeExtraInfo[0].banner || null,
-      synopsis: extra.animeExtraInfo[0].synopsis || null,
-      debut: extra.animeExtraInfo[0].debut || null,
-      type: extra.animeExtraInfo[0].type || null,
-      rating: extra.animeExtraInfo[0].rating || null,
-      genres: extra.genres || null,
-      genresValue: extra.genresValue || null,
-      episodes: extra.listByEps || null,
-    
-    })));
-    
-  }catch(err){
-    console.log(err)
-  }
-
-  return Promise.all(promises);
-};
-
 const getAnimeVideoPromo = async(title) =>{
   const res = await cloudscraper(`${BASE_JIKA_URL}${title}` , {method: 'GET'});
   const matchAnime = JSON.parse(res).results.filter(x => x.title === title);
@@ -491,61 +645,6 @@ const getAnimeCharacters = async(title) =>{
   });
   
   return Promise.all(characters);
-};
-
-const search = async(query) =>{
-  const res = await cloudscraper(`${SEARCH_URL}${query}` , {method: 'GET'});
-  const body = await res;
-  const $ = cheerio.load(body);
-  const promises = [];
-  console.log(`${SEARCH_URL}${query}`);
-  $('div.Container ul.ListAnimes li article').each((index , element) =>{
-    const $element = $(element);
-    const id = $element.find('div.Description a.Button').attr('href').slice(1);
-    const title = $element.find('a h3').text();
-    let poster = $element.find('a div.Image figure img').attr('src') ||
-                 $element.find('a div.Image figure img').attr('data-cfsrc');
-    const banner = poster.replace('covers' , 'banners').trim();
-    const type = $element.find('div.Description p span.Type').text();
-    const synopsis = $element.find('div.Description p').eq(1).text().trim();
-    const rating = $element.find('div.Description p span.Vts').text();
-    const debut = $element.find('a span.Estreno').text().toLowerCase();
-   
-    promises.push({
-      id: id || null,
-      title: title || null,
-      malid: id || null,
-      poster: poster || null,
-      banner: banner || null,
-      synopsis: synopsis || null,
-      type: type || null,
-      rating: rating || null,
-    })
-  })
-  return Promise.all(promises);
-};
-
-const searchRelated = async(query) =>{
-  const res = await cloudscraper(`${SEARCH_URL}${query}` , {method: 'GET'});
-  const body = await res;
-  const $ = cheerio.load(body);
-  const promises = [];
-  
-  $('div.Container ul.ListAnimes li article').each((index , element) =>{
-    const $element = $(element);
-    const id = $element.find('div.Description a.Button').attr('href').slice(1);
-    const title = $element.find('a h3').text();
-    let poster = $element.find('a div.Image figure img').attr('src') ||
-                 $element.find('a div.Image figure img').attr('data-cfsrc');
-
-    promises.push(getMalId(title).then(extra => ({
-      id: id || null,
-      title: title || null,
-      poster: poster || null,
-      malId: extra[0] || null,
-    })))
-  })
-  return Promise.all(promises);
 };
 
 
@@ -744,57 +843,9 @@ const animeByGenres = async(genre , order , page) => {
   return Promise.all(promises);
 };
 
-const latestEpisodesAdded = async() =>{
-  const res = await cloudscraper(`${BASE_URL}` , {method: 'GET'});
-  const body = await res;
-  const $ = cheerio.load(body);
-  const promises = [];
-  $('div.Container ul.ListEpisodios li').each((index , element) =>{
-    const $element = $(element);
-    const id = $element.find('a').attr('href').replace('/ver/' , '').trim();
-    const title = $element.find('a strong.Title').text();
-    const poster = BASE_URL + $element.find('a span.Image img').attr('src').replace('thumbs','covers');
-    const episode = parseInt($element.find('a span.Capi').text().match(/\d+/g) , 10);
-    promises.push(getAnimeServers(id).then(async servers => ({
-      id: id || null,
-      title: title || null,
-      poster: poster || null,
-      episode: episode || null,
-    })))
-  })
-  return await Promise.all(promises);
-};
 
-const latestAnimeAdded = async() =>{
-  const res = await cloudscraper(`${BASE_URL}` , {method: 'GET'});
-  const body = await res;
-  const $ = cheerio.load(body);
-  const promises = [];
-  $('div.Container ul.ListAnimes li article').each((index , element) =>{
-    const $element = $(element);
-    const id = $element.find('div.Description a.Button').attr('href').slice(1);
-    const title = $element.find('a h3').text();
-    const poster = BASE_URL + $element.find('a div.Image figure img').attr('src');
-    const banner = poster.replace('covers' , 'banners').trim();
-    const type = $element.find('div.Description p span.Type').text();
-    const synopsis = $element.find('div.Description p').text().trim();
-    const rating = $element.find('div.Description p span.Vts').text();
-    const debut = $element.find('a span.Estreno').text().toLowerCase();
-    promises.push(animeEpisodesHandler(id).then(async extra => ({
-      id: id || null,
-      title: title || null,
-      poster: poster || null,
-      banner: banner || null,
-      synopsis: synopsis || null,
-      debut: extra.animeExtraInfo[0].debut.toString() || null,
-      type: type || null,
-      rating: rating || null,
-      genres: extra.genres || null,
-      episodes: extra.listByEps || null
-    })))
-  })
-  return await Promise.all(promises);
-};
+
+
 
 const animeEpisodesHandler = async(id) =>{
   try{
@@ -891,30 +942,9 @@ const animeEpisodesHandler = async(id) =>{
 //    console.log(JSON.stringify(doc , null , 2));
 //})
 
-const getAnimeServers = async(id) =>{
-  const res = await cloudscraper(`${ANIME_VIDEO_URL}${id}` , {method: 'GET'});
-  const body = await res;
-  const $ = cheerio.load(body);
-  const scripts = $('script');
-  const servers = [];
-  
-  Array.from({length: scripts.length} , (v , k) =>{
-    const $script = $(scripts[k]);
-    const contents = $script.html();
-    if((contents || '').includes('var videos = {')) {
-      let videos = contents.split('var videos = ')[1].split(';')[0];
-      let data = JSON.parse(videos)
-      let serverList = data.SUB;
-      servers.push(serverList)
-    }
-  });
-  return servers[0];
-};
-
 
 module.exports = {
-  divJavier,
-  getManga,
+  Test,
   getByCategorie,
   TopAiring,
   TopFuture,
@@ -929,6 +959,7 @@ module.exports = {
   getAnimeVideoPromo,
   getAnimeCharacters,
   getAnimeServers,
+  downloadEpisode,
   animeByGenres,
   animeByState,
   searchRelated,
@@ -938,5 +969,6 @@ module.exports = {
   ova,
   tv,
   getAnimeInfo,
+  getEpisodes,
   downloadLinksByEpsId
 };

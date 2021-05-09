@@ -4,7 +4,16 @@ const api = require('../api');
 const otakustv = require('otakustv');
 const malScraper = require('mal-scraper');
 
-
+router.get('/Test' , (req , res) =>{
+  let genre = req.params.genre;
+  let page = req.params.page;
+  api.Test()
+    .then(genre =>{
+      res.status(200).json(genre);
+    }).catch((err) =>{
+      console.error(err);
+    });
+});
 
 //RUTAS ANIME
 router.get('/getByCategorie/:genre/:page' , (req , res) =>{
@@ -375,10 +384,10 @@ router.get('/LatestEpisodesAdded' , (req , res) =>{
  *   }
  */
 
-router.get('/GetAnimeServers/:id([^/]+/[^/]+)' , (req , res) =>{
+router.get('/GetAnimeServers/:id/:episode' , (req , res) =>{
   let id = req.params.id;
-  console.log(id);
-  api.getAnimeServers(id)
+  let episode = req.params.episode;
+  api.getAnimeServers(id, episode)
     .then(servers =>{
       res.status(200).json({
         servers
@@ -1484,13 +1493,21 @@ router.get('/AnimeTrailers/:title' , (req , res) =>{
  *   }
  */
 
-router.get('/GetAnimeInfo/:id*/:title' , (req , res) =>{
-  let id = req.params.id +'/'+ req.params.title;
-  console.log(id);
+router.get('/GetAnimeInfo/:id' , (req , res) =>{
+  let id = req.params.id;
   api.getAnimeInfo(id)
     .then(info =>{
       res.status(200).json(info);
-      console.log(req.params.title)
+    }).catch((err) =>{
+      console.log(err);
+    });
+});
+
+router.get('/GetAnimeEpisodes/:id' , (req , res) =>{
+  let id = req.params.id;
+  api.getEpisodes(id)
+    .then(info =>{
+      res.status(200).json(info);
     }).catch((err) =>{
       console.log(err);
     });
