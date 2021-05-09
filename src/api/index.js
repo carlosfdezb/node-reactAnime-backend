@@ -10,7 +10,7 @@ router.get('/', (req, res) => {
     entries: [
       {
         'LatestAnimeAdded': '/api/v1/LatestAnimeAdded',
-        'LatestEpisodesAdded': 'soon',
+        'other-entries': 'soon',
       }
     ]
   });
